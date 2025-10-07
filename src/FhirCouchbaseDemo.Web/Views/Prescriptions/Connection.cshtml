@@ -1,0 +1,82 @@
+@model FhirCouchbaseDemo.Web.ViewModels.ConnectionTestViewModel
+@{
+    ViewData["Title"] = "Couchbase Connection";
+}
+
+<h1 class="display-6 mb-4">Couchbase connectivity & configuration</h1>
+<p class="text-muted">Update the Couchbase credentials stored by the demo and verify connectivity from the application.</p>
+
+<form asp-action="SaveConnection" method="post" class="border rounded p-4 mb-4 bg-light-subtle">
+    @Html.AntiForgeryToken()
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label asp-for="Settings.ConnectionString" class="form-label"></label>
+            <input asp-for="Settings.ConnectionString" class="form-control" />
+            <span asp-validation-for="Settings.ConnectionString" class="text-danger"></span>
+        </div>
+        <div class="col-md-3">
+            <label asp-for="Settings.Username" class="form-label"></label>
+            <input asp-for="Settings.Username" class="form-control" />
+            <span asp-validation-for="Settings.Username" class="text-danger"></span>
+        </div>
+        <div class="col-md-3">
+            <label asp-for="Settings.Password" class="form-label"></label>
+            <input asp-for="Settings.Password" class="form-control" type="password" autocomplete="current-password" />
+            <span asp-validation-for="Settings.Password" class="text-danger"></span>
+        </div>
+        <div class="col-md-4">
+            <label asp-for="Settings.BucketName" class="form-label"></label>
+            <input asp-for="Settings.BucketName" class="form-control" />
+            <span asp-validation-for="Settings.BucketName" class="text-danger"></span>
+        </div>
+        <div class="col-md-4">
+            <label asp-for="Settings.ScopeName" class="form-label"></label>
+            <input asp-for="Settings.ScopeName" class="form-control" />
+            <span asp-validation-for="Settings.ScopeName" class="text-danger"></span>
+        </div>
+        <div class="col-md-4">
+            <label asp-for="Settings.CollectionName" class="form-label"></label>
+            <input asp-for="Settings.CollectionName" class="form-control" />
+            <span asp-validation-for="Settings.CollectionName" class="text-danger"></span>
+        </div>
+        <div class="col-12 d-flex justify-content-between align-items-center mt-2">
+            <small class="text-muted">Settings are stored in <code>App_Data/couchbase-settings.json</code> inside the project.</small>
+            <button type="submit" class="btn btn-primary">Save settings</button>
+        </div>
+    </div>
+</form>
+
+@if (!string.IsNullOrEmpty(Model.SaveMessage))
+{
+    var alertClass = Model.SaveSucceeded ? "alert-success" : "alert-danger";
+    <div class="alert @alertClass" role="alert">@Model.SaveMessage</div>
+}
+
+<form asp-action="TestConnection" method="post" class="mb-4">
+    @Html.AntiForgeryToken()
+    <p class="text-muted mb-2">Run the connectivity test using the currently saved credentials.</p>
+    <button type="submit" class="btn btn-outline-primary">Run connectivity test</button>
+</form>
+
+@if (Model.Result is not null)
+{
+    var alertClass = Model.Result.Success ? "alert-success" : "alert-danger";
+    <div class="alert @alertClass" role="alert">
+        <strong>@(Model.Result.Success ? "Success" : "Failure"):</strong> @Model.Result.Message
+    </div>
+
+    if (Model.Result.Details.Count > 0)
+    {
+        <ul class="list-group list-group-flush mb-4">
+            @foreach (var detail in Model.Result.Details)
+            {
+                <li class="list-group-item">@detail</li>
+            }
+        </ul>
+    }
+}
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

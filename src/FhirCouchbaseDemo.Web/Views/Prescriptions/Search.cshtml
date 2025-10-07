@@ -1,0 +1,78 @@
+@using System
+@using Newtonsoft.Json
+@model FhirCouchbaseDemo.Web.ViewModels.SearchPageViewModel
+@{
+    ViewData["Title"] = "Search Prescriptions";
+}
+
+<h1 class="display-6 mb-4">Search stored prescriptions</h1>
+<p class="text-muted">Filter stored Couchbase documents by PZN and issued date range.</p>
+
+<form asp-action="Search" method="post" class="border rounded p-4 mb-5">
+    @Html.AntiForgeryToken()
+    <div class="row g-4">
+        <div class="col-md-4">
+            <label for="Pzn" class="form-label">PZN</label>
+            <input asp-for="Pzn" class="form-control" placeholder="e.g. 04351736" />
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Issue date (from)</label>
+            <input asp-for="IssueDateFrom" class="form-control" type="date" />
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Issue date (to)</label>
+            <input asp-for="IssueDateTo" class="form-control" type="date" />
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <button type="submit" class="btn btn-primary">Search</button>
+    </div>
+</form>
+
+@if (Model.HasSearched)
+{
+    if (Model.Results.Count == 0)
+    {
+        <div class="alert alert-info">No documents matched the criteria.</div>
+    }
+    else
+    {
+        <div class="table-responsive mb-4">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>PZN codes</th>
+                        <th>Issue date</th>
+                        <th>Uploaded</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var record in Model.Results)
+                {
+                    <tr>
+                        <td>@record.FileName</td>
+                        <td>@string.Join(", ", record.PznCodes)</td>
+                        <td>@record.IssueDate?.ToString("u")</td>
+                        <td>@record.UploadedAt.ToString("u")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <details class="mb-5">
+            <summary class="fw-semibold">Show JSON payloads</summary>
+            <div class="mt-3 vstack gap-4">
+                @foreach (var record in Model.Results)
+                {
+                    <section>
+                        <h3 class="h6">@record.FileName</h3>
+                        <pre class="bg-dark text-light p-3 rounded small overflow-auto">@Html.Raw(record.JsonPayload?.ToString(Formatting.Indented))</pre>
+                    </section>
+                }
+            </div>
+        </details>
+    }
+}

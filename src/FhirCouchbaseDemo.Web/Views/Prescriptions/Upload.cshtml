@@ -1,0 +1,185 @@
+@model FhirCouchbaseDemo.Web.ViewModels.UploadPageViewModel
+@{
+    ViewData["Title"] = "Upload FHIR Bundles";
+}
+
+<h1 class="display-6 mb-4">Upload FHIR Bundles</h1>
+<p class="text-muted">Drag and drop one or more FHIR XML bundles or browse to select files. Each bundle is converted to canonical FHIR JSON and persisted in Couchbase.</p>
+
+<form asp-action="Upload" method="post" enctype="multipart/form-data" class="mb-5" id="upload-form">
+    @Html.AntiForgeryToken()
+    <div class="mb-3">
+        <label asp-for="Files" class="form-label">FHIR XML files</label>
+        <input asp-for="Files" type="file" class="d-none" accept=".xml" multiple />
+        <span asp-validation-for="Files" class="text-danger"></span>
+
+        <div id="drop-zone" class="drop-zone" role="button" tabindex="0">
+            <div class="drop-zone__icon" aria-hidden="true">⬆️</div>
+            <p class="mb-1">Drop files here or</p>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="browse-button">Browse files</button>
+            <p class="text-muted small mt-2 mb-0">Accepted type: .xml (multiple files supported)</p>
+        </div>
+
+        <ul id="selected-files" class="file-list mt-3"></ul>
+    </div>
+
+    <div class="mt-4">
+        <button type="submit" class="btn btn-primary">Upload to Couchbase</button>
+    </div>
+</form>
+
+@if (Model.Result is not null)
+{
+    <section class="mb-5">
+        <h2 class="h4">Upload summary</h2>
+        <p class="text-muted">Documents stored: <strong>@Model.Result.StoredRecords.Count</strong></p>
+
+        @if (Model.Result.Warnings.Count > 0)
+        {
+            <div class="alert alert-warning" role="alert">
+                <strong>Warnings</strong>
+                <ul class="mb-0">
+                    @foreach (var warning in Model.Result.Warnings)
+                    {
+                        <li>@warning</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @if (Model.Result.Failures.Count > 0)
+        {
+            <div class="alert alert-danger" role="alert">
+                <strong>Failed uploads</strong>
+                <ul class="mb-0">
+                    @foreach (var failure in Model.Result.Failures)
+                    {
+                        <li><strong>@failure.FileName:</strong> @failure.ErrorMessage</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @if (Model.Result.StoredRecords.Count > 0)
+        {
+            <div class="table-responsive mt-3">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Primary PZN</th>
+                            <th>PZNs</th>
+                            <th>Issue date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var record in Model.Result.StoredRecords)
+                        {
+                            <tr>
+                                <td>@record.FileName</td>
+                                <td>@record.PrimaryPzn</td>
+                                <td>@string.Join(", ", record.PznCodes)</td>
+                                <td>@record.IssueDate?.ToString("u")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        (function () {
+            const fileInput = document.getElementById('Files');
+            const dropZone = document.getElementById('drop-zone');
+            const browseButton = document.getElementById('browse-button');
+            const fileList = document.getElementById('selected-files');
+
+            if (!fileInput || !dropZone || !browseButton || !fileList) {
+                return;
+            }
+
+            const acceptsFile = (file) => file && (file.type === 'text/xml' || file.name.toLowerCase().endsWith('.xml'));
+
+            const setFiles = (files) => {
+                if (!window.DataTransfer) {
+                    fileInput.files = files;
+                    renderFileList();
+                    return;
+                }
+
+                const dataTransfer = new DataTransfer();
+                Array.from(files).forEach(file => {
+                    if (acceptsFile(file)) {
+                        dataTransfer.items.add(file);
+                    }
+                });
+                fileInput.files = dataTransfer.files;
+                renderFileList();
+            };
+
+            const appendFiles = (files) => {
+                if (!window.DataTransfer) {
+                    setFiles(files);
+                    return;
+                }
+
+                const dataTransfer = new DataTransfer();
+                Array.from(fileInput.files).forEach(existing => dataTransfer.items.add(existing));
+                Array.from(files).forEach(file => {
+                    if (acceptsFile(file)) {
+                        dataTransfer.items.add(file);
+                    }
+                });
+                fileInput.files = dataTransfer.files;
+                renderFileList();
+            };
+
+            const renderFileList = () => {
+                fileList.innerHTML = '';
+                if (!fileInput.files || fileInput.files.length === 0) {
+                    const emptyItem = document.createElement('li');
+                    emptyItem.className = 'text-muted fst-italic';
+                    emptyItem.textContent = 'No files selected yet.';
+                    fileList.appendChild(emptyItem);
+                    return;
+                }
+
+                Array.from(fileInput.files).forEach(file => {
+                    const item = document.createElement('li');
+                    item.innerHTML = `<strong>${file.name}</strong> <span class="text-muted">(${(file.size / 1024).toFixed(1)} KB)</span>`;
+                    fileList.appendChild(item);
+                });
+            };
+
+            browseButton.addEventListener('click', () => fileInput.click());
+            dropZone.addEventListener('click', () => fileInput.click());
+
+            dropZone.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                dropZone.classList.add('drop-zone--active');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('drop-zone--active');
+            });
+
+            dropZone.addEventListener('drop', (event) => {
+                event.preventDefault();
+                dropZone.classList.remove('drop-zone--active');
+                const files = event.dataTransfer?.files;
+                if (!files || files.length === 0) {
+                    return;
+                }
+                appendFiles(files);
+            });
+
+            fileInput.addEventListener('change', () => setFiles(fileInput.files));
+
+            renderFileList();
+        })();
+    </script>
+}

@@ -1,0 +1,38 @@
+@{
+    ViewData["Title"] = "FHIR Prescriptions Demo";
+}
+
+<div class="py-5">
+    <h1 class="display-5 mb-3">FHIR prescriptions with Couchbase</h1>
+    <p class="lead">Upload eRezept FHIR XML bundles, convert them to JSON, and explore the stored data with Couchbase queries.</p>
+
+    <div class="row row-cols-1 row-cols-md-3 g-4 mt-4">
+        <div class="col">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5 card-title">Upload workflow</h2>
+                    <p class="card-text">Import bundled prescriptions and persist both the raw XML and canonical FHIR JSON in Couchbase with extracted metadata.</p>
+                    <a asp-controller="Prescriptions" asp-action="Upload" class="btn btn-primary">Upload documents</a>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5 card-title">Search data</h2>
+                    <p class="card-text">Filter by PZN and issued date to validate the conversion and quickly find stored prescriptions.</p>
+                    <a asp-controller="Prescriptions" asp-action="Search" class="btn btn-outline-primary">Run search</a>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5 card-title">Connection diagnostics</h2>
+                    <p class="card-text">Verify Couchbase connectivity and bucket configuration before demoing the application.</p>
+                    <a asp-controller="Prescriptions" asp-action="Connection" class="btn btn-outline-secondary">Test connection</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

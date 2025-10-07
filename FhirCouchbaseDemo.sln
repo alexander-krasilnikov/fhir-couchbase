@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{B4715F3C-C1E3-47AC-9488-5CA41BBB386A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FhirCouchbaseDemo.Web", "src\FhirCouchbaseDemo.Web\FhirCouchbaseDemo.Web.csproj", "{F280D338-FB81-436C-8E31-1537B5ACDCD5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F280D338-FB81-436C-8E31-1537B5ACDCD5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F280D338-FB81-436C-8E31-1537B5ACDCD5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F280D338-FB81-436C-8E31-1537B5ACDCD5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F280D338-FB81-436C-8E31-1537B5ACDCD5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F280D338-FB81-436C-8E31-1537B5ACDCD5} = {B4715F3C-C1E3-47AC-9488-5CA41BBB386A}
+	EndGlobalSection
+EndGlobal
