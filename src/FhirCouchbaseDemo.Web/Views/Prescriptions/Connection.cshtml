@@ -49,8 +49,63 @@
 
 @if (!string.IsNullOrEmpty(Model.SaveMessage))
 {
-    var alertClass = Model.SaveSucceeded ? "alert-success" : "alert-danger";
+    var alertClass = $"alert-{Model.SaveAlertStyle}";
     <div class="alert @alertClass" role="alert">@Model.SaveMessage</div>
+}
+
+@if (Model.StructureStatus is not null)
+{
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-body-secondary">
+            <strong>Cluster structures</strong>
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">Latest check for the configured bucket, scope, and collection.</p>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    Bucket <code>@Model.StructureStatus.BucketName</code>
+                    <span class="badge @(Model.StructureStatus.BucketExists ? "text-bg-success" : "text-bg-warning")">
+                        @(Model.StructureStatus.BucketExists ? "Found" : "Missing")
+                    </span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    Scope <code>@Model.StructureStatus.ScopeName</code>
+                    <span class="badge @((Model.StructureStatus.ScopeExists && Model.StructureStatus.BucketExists) ? "text-bg-success" : "text-bg-warning")">
+                        @(Model.StructureStatus.ScopeExists && Model.StructureStatus.BucketExists ? "Found" : "Missing")
+                    </span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    Collection <code>@Model.StructureStatus.CollectionName</code>
+                    <span class="badge @((Model.StructureStatus.CollectionExists && Model.StructureStatus.ScopeExists && Model.StructureStatus.BucketExists) ? "text-bg-success" : "text-bg-warning")">
+                        @(Model.StructureStatus.CollectionExists && Model.StructureStatus.ScopeExists && Model.StructureStatus.BucketExists ? "Found" : "Missing")
+                    </span>
+                </li>
+            </ul>
+
+            @if (Model.StructureStatus.HasErrors)
+            {
+                <div class="alert alert-danger mt-3" role="alert">
+                    <strong>Verification errors:</strong>
+                    <ul class="mb-0">
+                        @foreach (var error in Model.StructureStatus.Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                </div>
+            }
+            else if (Model.StructureStatus.NeedsCreation)
+            {
+                <div class="alert alert-warning mt-3" role="alert">
+                    Missing structures can be provisioned automatically using the button below.
+                </div>
+                <form asp-action="CreateStructures" method="post" class="d-flex justify-content-end mt-3">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-warning">Create missing structures</button>
+                </form>
+            }
+        </div>
+    </div>
 }
 
 <form asp-action="TestConnection" method="post" class="mb-4">

@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FhirCouchbaseDemo.Web.Models;
@@ -34,12 +36,13 @@ public class PrescriptionIngestionService
         {
             try
             {
+                var format = DetectFormat(file);
                 if (file.Content.CanSeek)
                 {
                     file.Content.Seek(0, SeekOrigin.Begin);
                 }
 
-                var processed = _processor.Process(file.Content, file.FileName);
+                var processed = _processor.Process(file.Content, file.FileName, format);
                 if (!processed.Succeeded || processed.Record is null)
                 {
                     result.Failures.Add(new UploadFailure
@@ -70,5 +73,50 @@ public class PrescriptionIngestionService
         }
 
         return result;
+    }
+
+    private static FhirDocumentFormat DetectFormat(FileUploadContext file)
+    {
+        var extension = Path.GetExtension(file.FileName);
+        if (!string.IsNullOrEmpty(extension))
+        {
+            if (string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase))
+            {
+                return FhirDocumentFormat.Json;
+            }
+
+            if (string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase))
+            {
+                return FhirDocumentFormat.Xml;
+            }
+        }
+
+        if (file.Content.CanSeek)
+        {
+            var originalPosition = file.Content.Position;
+            try
+            {
+                file.Content.Seek(0, SeekOrigin.Begin);
+                using var reader = new StreamReader(file.Content, Encoding.UTF8, true, 1024, leaveOpen: true);
+                int ch;
+                do
+                {
+                    ch = reader.Read();
+                } while (ch != -1 && char.IsWhiteSpace((char)ch));
+
+                return ch switch
+                {
+                    '{' or '[' => FhirDocumentFormat.Json,
+                    '<' => FhirDocumentFormat.Xml,
+                    _ => FhirDocumentFormat.Xml
+                };
+            }
+            finally
+            {
+                file.Content.Seek(originalPosition, SeekOrigin.Begin);
+            }
+        }
+
+        return FhirDocumentFormat.Xml;
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using FhirCouchbaseDemo.Web.Models;
@@ -35,20 +36,53 @@ public class FhirDocumentProcessor
         _logger = logger;
     }
 
-    public FhirProcessingResult Process(Stream xmlStream, string fileName)
+    public FhirProcessingResult Process(Stream stream, string fileName) =>
+        Process(stream, fileName, FhirDocumentFormat.Xml);
+
+    public FhirProcessingResult Process(Stream stream, string fileName, FhirDocumentFormat format)
+    {
+        if (stream is null)
+        {
+            throw new ArgumentNullException(nameof(stream));
+        }
+
+        try
+        {
+            if (stream.CanSeek)
+            {
+                stream.Seek(0, SeekOrigin.Begin);
+            }
+
+            using var reader = new StreamReader(stream, Encoding.UTF8, true, 1024, leaveOpen: true);
+            var payload = reader.ReadToEnd();
+
+            return format switch
+            {
+                FhirDocumentFormat.Json => ProcessJsonContent(payload, fileName),
+                _ => ProcessXmlContent(payload, fileName)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read FHIR document {FileName}", fileName);
+            return new FhirProcessingResult
+            {
+                Succeeded = false,
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
+    private FhirProcessingResult ProcessXmlContent(string xmlContent, string fileName)
     {
         try
         {
-            xmlStream.Position = 0;
-            using var reader = new StreamReader(xmlStream);
-            var xmlContent = reader.ReadToEnd();
             var xmlDocument = LoadXmlDocument(xmlContent);
 
             var jsonPayloadNode = ConvertToFhirJson(xmlContent, fileName) ??
                                   ConvertToGenericJson(xmlDocument, fileName);
 
             var xDocument = XDocument.Parse(xmlContent, LoadOptions.None);
-
             var metadata = ExtractMetadata(xDocument);
 
             var record = new PrescriptionRecord
@@ -61,15 +95,7 @@ public class FhirDocumentProcessor
                 IssueDate = metadata.IssueDate
             };
 
-            if (metadata.PznCodes.Count == 0)
-            {
-                metadata.Warnings.Add("No PZN code was found in the document.");
-            }
-
-            if (metadata.IssueDate is null)
-            {
-                metadata.Warnings.Add("No issued/timestamp value was detected in the document.");
-            }
+            AppendDefaultWarnings(metadata);
 
             return new FhirProcessingResult
             {
@@ -81,6 +107,43 @@ public class FhirDocumentProcessor
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process FHIR XML document {FileName}", fileName);
+            return new FhirProcessingResult
+            {
+                Succeeded = false,
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
+    private FhirProcessingResult ProcessJsonContent(string jsonContent, string fileName)
+    {
+        try
+        {
+            var jsonPayload = JToken.Parse(jsonContent);
+            var metadata = ExtractMetadata(jsonPayload);
+
+            var record = new PrescriptionRecord
+            {
+                FileName = fileName,
+                JsonPayload = jsonPayload,
+                RawXml = jsonContent,
+                PznCodes = metadata.PznCodes,
+                PrimaryPzn = metadata.PrimaryPzn,
+                IssueDate = metadata.IssueDate
+            };
+
+            AppendDefaultWarnings(metadata);
+
+            return new FhirProcessingResult
+            {
+                Succeeded = true,
+                Record = record,
+                Warnings = metadata.Warnings
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process FHIR JSON document {FileName}", fileName);
             return new FhirProcessingResult
             {
                 Succeeded = false,
@@ -132,6 +195,101 @@ public class FhirDocumentProcessor
         return metadata;
     }
 
+    private static FhirMetadata ExtractMetadata(JToken document)
+    {
+        var metadata = new FhirMetadata();
+        var pznValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Traverse(JToken token)
+        {
+            switch (token)
+            {
+                case JObject obj:
+                    foreach (var property in obj.Properties())
+                    {
+                        if (IsCodingProperty(property.Name))
+                        {
+                            switch (property.Value.Type)
+                            {
+                                case JTokenType.Object:
+                                    TryAddCoding(property.Value as JObject);
+                                    break;
+                                case JTokenType.Array:
+                                    foreach (var codingObj in property.Value.Children<JObject>())
+                                    {
+                                        TryAddCoding(codingObj);
+                                    }
+
+                                    break;
+                            }
+                        }
+
+                        if (metadata.IssueDate is null &&
+                            TimestampElementCandidates.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
+                        {
+                            if (property.Value.Type == JTokenType.Date)
+                            {
+                                metadata.IssueDate = property.Value.Value<DateTime?>();
+                            }
+                            else
+                            {
+                                var rawValue = property.Value.Type == JTokenType.String
+                                    ? property.Value.Value<string>()
+                                    : property.Value.ToString();
+
+                                if (TryParseDate(rawValue, out var parsed))
+                                {
+                                    metadata.IssueDate = parsed;
+                                }
+                            }
+                        }
+
+                        Traverse(property.Value);
+                    }
+
+                    break;
+
+                case JArray array:
+                    foreach (var child in array)
+                    {
+                        Traverse(child);
+                    }
+
+                    break;
+            }
+        }
+
+        void TryAddCoding(JObject? codingObj)
+        {
+            if (codingObj is null)
+            {
+                return;
+            }
+
+            var system = codingObj["system"]?.Value<string>();
+            if (!string.Equals(system, PznNamespace, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var code = codingObj["code"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return;
+            }
+
+            if (pznValues.Add(code))
+            {
+                metadata.PznCodes.Add(code);
+            }
+        }
+
+        Traverse(document);
+        metadata.PrimaryPzn = metadata.PznCodes.FirstOrDefault();
+
+        return metadata;
+    }
+
     private static XmlDocument LoadXmlDocument(string xmlContent)
     {
         var settings = new XmlReaderSettings { IgnoreWhitespace = true };
@@ -177,6 +335,10 @@ public class FhirDocumentProcessor
         string.Equals(element.Name.LocalName, "coding", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(element.Name.LocalName, "valueCoding", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsCodingProperty(string propertyName) =>
+        string.Equals(propertyName, "coding", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(propertyName, "valueCoding", StringComparison.OrdinalIgnoreCase);
+
     private static string? GetElementValue(XElement parent, string localName)
     {
         var child = parent.Elements()
@@ -211,5 +373,18 @@ public class FhirDocumentProcessor
         }
 
         return false;
+    }
+
+    private static void AppendDefaultWarnings(FhirMetadata metadata)
+    {
+        if (metadata.PznCodes.Count == 0)
+        {
+            metadata.Warnings.Add("No PZN code was found in the document.");
+        }
+
+        if (metadata.IssueDate is null)
+        {
+            metadata.Warnings.Add("No issued/timestamp value was detected in the document.");
+        }
     }
 }

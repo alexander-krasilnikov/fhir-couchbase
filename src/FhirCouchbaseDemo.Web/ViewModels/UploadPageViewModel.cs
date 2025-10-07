@@ -7,8 +7,9 @@ namespace FhirCouchbaseDemo.Web.ViewModels;
 
 public class UploadPageViewModel
 {
-    [Display(Name = "FHIR XML files"), Required]
+    [Display(Name = "FHIR bundle files")]
     public List<IFormFile> Files { get; set; } = new();
 
     public UploadResult? Result { get; set; }
+    public S3ImportViewModel S3Import { get; set; } = new();
 }

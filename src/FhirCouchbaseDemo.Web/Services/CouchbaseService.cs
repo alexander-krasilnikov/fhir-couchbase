@@ -6,7 +6,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using FhirCouchbaseDemo.Web.Models;
 using Couchbase;
+using Couchbase.Core.Exceptions;
 using Couchbase.KeyValue;
+using Couchbase.Management.Buckets;
+using Couchbase.Management.Collections;
 using Couchbase.Query;
 using Microsoft.Extensions.Logging;
 
@@ -167,6 +170,210 @@ public class CouchbaseService : ICouchbaseService
         }
 
         return records;
+    }
+
+    public async Task<CouchbaseStructureStatus> CheckStructureAsync(CancellationToken cancellationToken = default)
+    {
+        var settings = await _settingsStore.GetAsync(cancellationToken).ConfigureAwait(false);
+        var status = new CouchbaseStructureStatus(settings);
+        ICluster? cluster = null;
+
+        try
+        {
+            cluster = await Cluster.ConnectAsync(settings.ConnectionString, options =>
+            {
+                options.UserName = settings.Username;
+                options.Password = settings.Password;
+            }).ConfigureAwait(false);
+
+            status.ClusterReachable = true;
+
+            IDictionary<string, BucketSettings> buckets;
+            try
+            {
+                buckets = await cluster.Buckets.GetAllBucketsAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unable to enumerate Couchbase buckets.");
+                status.Errors.Add($"Failed to enumerate buckets: {ex.Message}");
+                return status;
+            }
+
+            if (!buckets.ContainsKey(settings.BucketName))
+            {
+                status.BucketExists = false;
+                return status;
+            }
+
+            status.BucketExists = true;
+            var bucket = await cluster.BucketAsync(settings.BucketName).ConfigureAwait(false);
+            var scopeName = ResolveScopeName(settings);
+            var collectionName = ResolveCollectionName(settings);
+
+            List<ScopeSpec> scopes;
+            try
+            {
+                scopes = (await bucket.Collections.GetAllScopesAsync().ConfigureAwait(false)).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unable to enumerate scopes for bucket {Bucket}.", settings.BucketName);
+                status.Errors.Add($"Failed to enumerate scopes: {ex.Message}");
+                return status;
+            }
+
+            ScopeSpec? scopeSpec = null;
+            if (scopeName.Equals("_default", StringComparison.Ordinal))
+            {
+                status.ScopeExists = true;
+                scopeSpec = scopes.FirstOrDefault(s => s.Name.Equals(scopeName, StringComparison.Ordinal));
+            }
+            else
+            {
+                scopeSpec = scopes.FirstOrDefault(s => s.Name.Equals(scopeName, StringComparison.Ordinal));
+                status.ScopeExists = scopeSpec is not null;
+                if (!status.ScopeExists)
+                {
+                    return status;
+                }
+            }
+
+            if (collectionName.Equals("_default", StringComparison.Ordinal) && scopeName.Equals("_default", StringComparison.Ordinal))
+            {
+                status.CollectionExists = true;
+            }
+            else if (scopeSpec is not null)
+            {
+                status.CollectionExists = scopeSpec.Collections.Any(c => c.Name.Equals(collectionName, StringComparison.Ordinal));
+            }
+            else
+            {
+                var defaultScope = scopes.FirstOrDefault(s => s.Name.Equals(scopeName, StringComparison.Ordinal));
+                status.CollectionExists = defaultScope?.Collections.Any(c => c.Name.Equals(collectionName, StringComparison.Ordinal)) ?? false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to verify Couchbase structures.");
+            status.Errors.Add(ex.Message);
+        }
+        finally
+        {
+            if (cluster is not null)
+            {
+                await cluster.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        return status;
+    }
+
+    public async Task<CouchbaseStructureStatus> CreateMissingStructuresAsync(CancellationToken cancellationToken = default)
+    {
+        var settings = await _settingsStore.GetAsync(cancellationToken).ConfigureAwait(false);
+        var status = await CheckStructureAsync(cancellationToken).ConfigureAwait(false);
+        if (status.HasErrors)
+        {
+            return status;
+        }
+
+        ICluster? cluster = null;
+
+        try
+        {
+            cluster = await Cluster.ConnectAsync(settings.ConnectionString, options =>
+            {
+                options.UserName = settings.Username;
+                options.Password = settings.Password;
+            }).ConfigureAwait(false);
+
+            status.ClusterReachable = true;
+            var scopeName = ResolveScopeName(settings);
+            var collectionName = ResolveCollectionName(settings);
+
+            if (!status.BucketExists)
+            {
+                _logger.LogInformation("Creating Couchbase bucket {BucketName}...", settings.BucketName);
+                var bucketSettings = new BucketSettings
+                {
+                    Name = settings.BucketName,
+                    BucketType = BucketType.Couchbase,
+                    RamQuotaMB = 256,
+                    NumReplicas = 0,
+                    FlushEnabled = false
+                };
+
+                await cluster.Buckets.CreateBucketAsync(bucketSettings, options => options.CancellationToken(cancellationToken)).ConfigureAwait(false);
+                await WaitForBucketReadyAsync(cluster, settings.BucketName, cancellationToken).ConfigureAwait(false);
+            }
+
+            var bucket = await cluster.BucketAsync(settings.BucketName).ConfigureAwait(false);
+            var collectionManager = bucket.Collections;
+
+            if (!status.ScopeExists && !scopeName.Equals("_default", StringComparison.Ordinal))
+            {
+                _logger.LogInformation("Creating Couchbase scope {ScopeName} in bucket {BucketName}...", scopeName, settings.BucketName);
+                await collectionManager.CreateScopeAsync(scopeName, options => options.CancellationToken(cancellationToken)).ConfigureAwait(false);
+                status.ScopeExists = true;
+            }
+
+            if (!status.CollectionExists && !collectionName.Equals("_default", StringComparison.Ordinal))
+            {
+                _logger.LogInformation(
+                    "Creating Couchbase collection {CollectionName} in scope {ScopeName} ({BucketName}).",
+                    collectionName,
+                    scopeName,
+                    settings.BucketName);
+
+                var collectionSpec = new CollectionSpec(scopeName, collectionName);
+#pragma warning disable CS0618 // Use legacy overload until SDK consumers adopt CreateCollectionSettings signatures
+                await collectionManager.CreateCollectionAsync(collectionSpec, options => options.CancellationToken(cancellationToken)).ConfigureAwait(false);
+#pragma warning restore CS0618
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create Couchbase structures.");
+            status.Errors.Add(ex.Message);
+            return status;
+        }
+        finally
+        {
+            if (cluster is not null)
+            {
+                await cluster.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        var refreshedStatus = await CheckStructureAsync(cancellationToken).ConfigureAwait(false);
+        if (!refreshedStatus.HasErrors && refreshedStatus.IsComplete)
+        {
+            await DisposeClusterAsync().ConfigureAwait(false);
+        }
+
+        return refreshedStatus;
+    }
+
+    private static async Task WaitForBucketReadyAsync(ICluster cluster, string bucketName, CancellationToken cancellationToken)
+    {
+        var attempts = 0;
+        while (attempts < 10)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await cluster.BucketAsync(bucketName).ConfigureAwait(false);
+                return;
+            }
+            catch (CouchbaseException)
+            {
+                attempts++;
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        throw new System.TimeoutException($"Bucket '{bucketName}' was not ready after waiting for 10 seconds.");
     }
 
     public async Task<CouchbaseTestResult> TestConnectionAsync(CancellationToken cancellationToken = default)

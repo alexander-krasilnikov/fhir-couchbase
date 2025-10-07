@@ -12,4 +12,6 @@ public interface ICouchbaseService : IAsyncDisposable
     Task StoreBatchAsync(IEnumerable<PrescriptionRecord> records, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PrescriptionRecord>> SearchAsync(SearchCriteria criteria, CancellationToken cancellationToken = default);
     Task<CouchbaseTestResult> TestConnectionAsync(CancellationToken cancellationToken = default);
+    Task<CouchbaseStructureStatus> CheckStructureAsync(CancellationToken cancellationToken = default);
+    Task<CouchbaseStructureStatus> CreateMissingStructuresAsync(CancellationToken cancellationToken = default);
 }

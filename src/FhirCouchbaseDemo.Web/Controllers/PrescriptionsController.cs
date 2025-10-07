@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using FhirCouchbaseDemo.Web.Models;
 using FhirCouchbaseDemo.Web.Services;
 using FhirCouchbaseDemo.Web.ViewModels;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FhirCouchbaseDemo.Web.Controllers;
@@ -15,15 +16,18 @@ public class PrescriptionsController : Controller
     private readonly PrescriptionIngestionService _ingestionService;
     private readonly ICouchbaseService _couchbaseService;
     private readonly ICouchbaseSettingsStore _settingsStore;
+    private readonly IS3DocumentLoader _s3DocumentLoader;
 
     public PrescriptionsController(
         PrescriptionIngestionService ingestionService,
         ICouchbaseService couchbaseService,
-        ICouchbaseSettingsStore settingsStore)
+        ICouchbaseSettingsStore settingsStore,
+        IS3DocumentLoader s3DocumentLoader)
     {
         _ingestionService = ingestionService;
         _couchbaseService = couchbaseService;
         _settingsStore = settingsStore;
+        _s3DocumentLoader = s3DocumentLoader;
     }
 
     [HttpGet]
@@ -36,9 +40,11 @@ public class PrescriptionsController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Upload(UploadPageViewModel viewModel, CancellationToken cancellationToken)
     {
+        viewModel.S3Import ??= new S3ImportViewModel();
+
         if (viewModel.Files is null || viewModel.Files.Count == 0)
         {
-            ModelState.AddModelError(nameof(viewModel.Files), "Select at least one XML file to upload.");
+            ModelState.AddModelError(nameof(viewModel.Files), "Select at least one file to upload.");
         }
 
         if (!ModelState.IsValid)
@@ -46,7 +52,7 @@ public class PrescriptionsController : Controller
             return View(viewModel);
         }
 
-        viewModel.Files ??= new List<Microsoft.AspNetCore.Http.IFormFile>();
+        viewModel.Files ??= new List<IFormFile>();
         var uploads = new List<FileUploadContext>();
         foreach (var file in viewModel.Files.Where(f => f.Length > 0))
         {
@@ -62,9 +68,52 @@ public class PrescriptionsController : Controller
 
         var result = await _ingestionService.IngestAsync(uploads, cancellationToken);
         viewModel.Result = result;
-        viewModel.Files = new List<Microsoft.AspNetCore.Http.IFormFile>();
+        viewModel.Files = new List<IFormFile>();
 
         return View(viewModel);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ImportFromS3(S3ImportViewModel s3ViewModel, CancellationToken cancellationToken)
+    {
+        var pageViewModel = new UploadPageViewModel
+        {
+            S3Import = s3ViewModel,
+            Files = new List<IFormFile>()
+        };
+
+        if (!TryValidateModel(s3ViewModel, nameof(UploadPageViewModel.S3Import)))
+        {
+            return View("Upload", pageViewModel);
+        }
+
+        var options = s3ViewModel.ToOptions();
+        var downloadResult = await _s3DocumentLoader.LoadAsync(options, cancellationToken).ConfigureAwait(false);
+
+        UploadResult ingestionResult;
+        if (downloadResult.Files.Count > 0)
+        {
+            ingestionResult = await _ingestionService.IngestAsync(downloadResult.Files, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            ingestionResult = new UploadResult();
+        }
+
+        if (downloadResult.Failures.Count > 0)
+        {
+            ingestionResult.Failures.InsertRange(0, downloadResult.Failures);
+        }
+
+        if (downloadResult.Warnings.Count > 0)
+        {
+            ingestionResult.Warnings.AddRange(downloadResult.Warnings);
+        }
+
+        pageViewModel.Result = ingestionResult;
+
+        return View("Upload", pageViewModel);
     }
 
     [HttpGet]
@@ -112,15 +161,36 @@ public class PrescriptionsController : Controller
         if (!TryValidateModel(viewModel.Settings, nameof(ConnectionTestViewModel.Settings)))
         {
             viewModel.SaveSucceeded = false;
+            viewModel.SaveAlertStyle = "danger";
             viewModel.SaveMessage = "Please fix the highlighted errors.";
             return View("Connection", viewModel);
         }
 
         await _settingsStore.SaveAsync(viewModel.Settings, cancellationToken);
+        var structureStatus = await _couchbaseService.CheckStructureAsync(cancellationToken);
+
         ModelState.Clear();
         viewModel.Settings = await _settingsStore.GetAsync(cancellationToken);
-        viewModel.SaveSucceeded = true;
-        viewModel.SaveMessage = "Couchbase settings saved.";
+        viewModel.StructureStatus = structureStatus;
+
+        if (structureStatus.HasErrors)
+        {
+            viewModel.SaveSucceeded = false;
+            viewModel.SaveAlertStyle = "danger";
+            viewModel.SaveMessage = $"Settings saved, but structure verification failed: {string.Join(" ", structureStatus.Errors)}";
+        }
+        else if (structureStatus.NeedsCreation)
+        {
+            viewModel.SaveSucceeded = false;
+            viewModel.SaveAlertStyle = "warning";
+            viewModel.SaveMessage = $"Settings saved, but the following objects are missing: {DescribeMissingStructures(structureStatus)}.";
+        }
+        else
+        {
+            viewModel.SaveSucceeded = true;
+            viewModel.SaveAlertStyle = "success";
+            viewModel.SaveMessage = "Couchbase settings saved.";
+        }
 
         return View("Connection", viewModel);
     }
@@ -139,5 +209,61 @@ public class PrescriptionsController : Controller
         };
 
         return View("Connection", viewModel);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateStructures(CancellationToken cancellationToken)
+    {
+        var settings = await _settingsStore.GetAsync(cancellationToken);
+        var status = await _couchbaseService.CreateMissingStructuresAsync(cancellationToken);
+
+        var viewModel = new ConnectionTestViewModel
+        {
+            Settings = settings,
+            StructureStatus = status
+        };
+
+        if (status.HasErrors)
+        {
+            viewModel.SaveSucceeded = false;
+            viewModel.SaveAlertStyle = "danger";
+            viewModel.SaveMessage = $"Failed to create Couchbase structures: {string.Join(" ", status.Errors)}";
+        }
+        else if (status.IsComplete)
+        {
+            viewModel.SaveSucceeded = true;
+            viewModel.SaveAlertStyle = "success";
+            viewModel.SaveMessage = "Missing Couchbase structures created successfully.";
+        }
+        else
+        {
+            viewModel.SaveSucceeded = false;
+            viewModel.SaveAlertStyle = "warning";
+            viewModel.SaveMessage = $"Creation completed with warnings. Outstanding objects: {DescribeMissingStructures(status)}.";
+        }
+
+        return View("Connection", viewModel);
+    }
+
+    private static string DescribeMissingStructures(CouchbaseStructureStatus status)
+    {
+        var missing = new List<string>();
+        if (!status.BucketExists)
+        {
+            missing.Add($"bucket '{status.BucketName}'");
+        }
+
+        if (status.BucketExists && !status.ScopeExists)
+        {
+            missing.Add($"scope '{status.ScopeName}'");
+        }
+
+        if (status.BucketExists && status.ScopeExists && !status.CollectionExists)
+        {
+            missing.Add($"collection '{status.CollectionName}'");
+        }
+
+        return string.Join(", ", missing);
     }
 }

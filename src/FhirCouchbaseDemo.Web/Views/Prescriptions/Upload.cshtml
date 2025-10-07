@@ -4,20 +4,20 @@
 }
 
 <h1 class="display-6 mb-4">Upload FHIR Bundles</h1>
-<p class="text-muted">Drag and drop one or more FHIR XML bundles or browse to select files. Each bundle is converted to canonical FHIR JSON and persisted in Couchbase.</p>
+<p class="text-muted">Drag and drop one or more FHIR bundles (XML or JSON) or browse to select files. Each bundle is converted to canonical FHIR JSON (or kept as-is when already JSON) and persisted in Couchbase.</p>
 
 <form asp-action="Upload" method="post" enctype="multipart/form-data" class="mb-5" id="upload-form">
     @Html.AntiForgeryToken()
     <div class="mb-3">
-        <label asp-for="Files" class="form-label">FHIR XML files</label>
-        <input asp-for="Files" type="file" class="d-none" accept=".xml" multiple />
+        <label asp-for="Files" class="form-label"></label>
+        <input asp-for="Files" type="file" class="d-none" accept=".xml,.json" multiple />
         <span asp-validation-for="Files" class="text-danger"></span>
 
         <div id="drop-zone" class="drop-zone" role="button" tabindex="0">
             <div class="drop-zone__icon" aria-hidden="true">⬆️</div>
             <p class="mb-1">Drop files here or</p>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="browse-button">Browse files</button>
-            <p class="text-muted small mt-2 mb-0">Accepted type: .xml (multiple files supported)</p>
+            <p class="text-muted small mt-2 mb-0">Accepted types: .xml, .json (multiple files supported)</p>
         </div>
 
         <ul id="selected-files" class="file-list mt-3"></ul>
@@ -27,6 +27,69 @@
         <button type="submit" class="btn btn-primary">Upload to Couchbase</button>
     </div>
 </form>
+
+<section class="mb-5">
+    <h2 class="h5">Import bundles from S3 or MinIO</h2>
+    <p class="text-muted">Fetch sample prescriptions directly from an S3-compatible bucket (AWS S3 or MinIO) and ingest them into Couchbase.</p>
+
+    <form asp-action="ImportFromS3" method="post" class="border rounded p-4 bg-light-subtle">
+        @Html.AntiForgeryToken()
+        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label asp-for="S3Import.AccessKeyId" class="form-label"></label>
+                <input asp-for="S3Import.AccessKeyId" class="form-control" autocomplete="off" />
+                <span asp-validation-for="S3Import.AccessKeyId" class="text-danger"></span>
+            </div>
+            <div class="col-md-6">
+                <label asp-for="S3Import.SecretAccessKey" class="form-label"></label>
+                <input asp-for="S3Import.SecretAccessKey" class="form-control" autocomplete="off" />
+                <span asp-validation-for="S3Import.SecretAccessKey" class="text-danger"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="S3Import.Region" class="form-label"></label>
+                <input asp-for="S3Import.Region" class="form-control" />
+                <span asp-validation-for="S3Import.Region" class="text-danger"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="S3Import.BucketName" class="form-label"></label>
+                <input asp-for="S3Import.BucketName" class="form-control" />
+                <span asp-validation-for="S3Import.BucketName" class="text-danger"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="S3Import.EndpointUrl" class="form-label"></label>
+                <input asp-for="S3Import.EndpointUrl" class="form-control" placeholder="https://minio.local:9000" />
+                <span asp-validation-for="S3Import.EndpointUrl" class="text-danger"></span>
+            </div>
+            <div class="col-md-6">
+                <label asp-for="S3Import.ObjectKeys" class="form-label"></label>
+                <textarea asp-for="S3Import.ObjectKeys" class="form-control" rows="4" placeholder="bundle-1.xml&#10;bundle-2.json"></textarea>
+                <span class="form-text">Provide specific object keys (one per line) or leave blank to use the prefix below.</span>
+                <span asp-validation-for="S3Import.ObjectKeys" class="text-danger"></span>
+            </div>
+            <div class="col-md-6">
+                <label asp-for="S3Import.Prefix" class="form-label"></label>
+                <input asp-for="S3Import.Prefix" class="form-control" placeholder="samples/erezept/" />
+                <span class="form-text">Optional prefix filter when no object keys are specified.</span>
+                <span asp-validation-for="S3Import.Prefix" class="text-danger"></span>
+            </div>
+            <div class="col-md-3">
+                <label asp-for="S3Import.MaxKeys" class="form-label"></label>
+                <input asp-for="S3Import.MaxKeys" class="form-control" type="number" min="1" max="500" />
+                <span asp-validation-for="S3Import.MaxKeys" class="text-danger"></span>
+            </div>
+            <div class="col-md-9 d-flex align-items-center">
+                <div class="form-check mt-4">
+                    <input asp-for="S3Import.ForcePathStyle" class="form-check-input" />
+                    <label asp-for="S3Import.ForcePathStyle" class="form-check-label"></label>
+                </div>
+            </div>
+        </div>
+        <div class="mt-4 d-flex justify-content-end">
+            <button type="submit" class="btn btn-outline-primary">Fetch from bucket</button>
+        </div>
+    </form>
+</section>
 
 @if (Model.Result is not null)
 {
@@ -102,7 +165,13 @@
                 return;
             }
 
-            const acceptsFile = (file) => file && (file.type === 'text/xml' || file.name.toLowerCase().endsWith('.xml'));
+            const acceptsFile = (file) => file && (
+                file.type === 'text/xml' ||
+                file.type === 'application/xml' ||
+                file.type === 'application/json' ||
+                file.name.toLowerCase().endsWith('.xml') ||
+                file.name.toLowerCase().endsWith('.json')
+            );
 
             const setFiles = (files) => {
                 if (!window.DataTransfer) {

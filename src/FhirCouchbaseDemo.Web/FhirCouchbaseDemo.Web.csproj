@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="CouchbaseNetClient" Version="3.8.0" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.301" />
     <PackageReference Include="Hl7.Fhir.R4" Version="5.12.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
