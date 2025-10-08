@@ -1,0 +1,17 @@
+{
+  "connectionString": "couchbase://localhost",
+  "username": "root",
+  "password": "sobaka",
+  "bucketName": "arz",
+  "scopeName": "fhir",
+  "collectionName": "bundles",
+  "s3": {
+    "accessKeyId": "minioadmin",
+    "secretAccessKey": "minioadmin",
+    "region": "us-east-1",
+    "bucketName": "fhir",
+    "endpointUrl": "http://127.0.0.1:9000",
+    "forcePathStyle": true,
+    "defaultPrefix": null
+  }
+}

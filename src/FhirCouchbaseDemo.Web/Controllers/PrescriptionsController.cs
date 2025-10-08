@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -31,9 +32,24 @@ public class PrescriptionsController : Controller
     }
 
     [HttpGet]
-    public IActionResult Upload()
+    public async Task<IActionResult> Upload(CancellationToken cancellationToken)
     {
-        return View(new UploadPageViewModel());
+        var settings = await _settingsStore.GetAsync(cancellationToken);
+        settings.S3 ??= new S3Settings();
+
+        var viewModel = new UploadPageViewModel
+        {
+            StoredS3Settings = settings.S3.Clone(),
+            S3Import = new S3ImportViewModel
+            {
+                Prefix = settings.S3.DefaultPrefix
+            },
+            S3Summary = null
+        };
+
+        viewModel.ActiveTab = viewModel.HasS3Configuration ? "files" : "s3";
+
+        return View(viewModel);
     }
 
     [HttpPost]
@@ -41,6 +57,17 @@ public class PrescriptionsController : Controller
     public async Task<IActionResult> Upload(UploadPageViewModel viewModel, CancellationToken cancellationToken)
     {
         viewModel.S3Import ??= new S3ImportViewModel();
+        var savedSettings = await _settingsStore.GetAsync(cancellationToken);
+        savedSettings.S3 ??= new S3Settings();
+        viewModel.StoredS3Settings = savedSettings.S3.Clone();
+        viewModel.ActiveTab = "files";
+        viewModel.S3Import.Prefix = savedSettings.S3.DefaultPrefix;
+        viewModel.S3Summary = null;
+        var prefixKey = $"{nameof(UploadPageViewModel.S3Import)}.{nameof(S3ImportViewModel.Prefix)}";
+        if (ModelState.ContainsKey(prefixKey))
+        {
+            ModelState.Remove(prefixKey);
+        }
 
         if (viewModel.Files is null || viewModel.Files.Count == 0)
         {
@@ -77,18 +104,36 @@ public class PrescriptionsController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ImportFromS3(S3ImportViewModel s3ViewModel, CancellationToken cancellationToken)
     {
+        var savedSettings = await _settingsStore.GetAsync(cancellationToken);
+        savedSettings.S3 ??= new S3Settings();
+
+        var trimmedPrefix = string.IsNullOrWhiteSpace(s3ViewModel.Prefix) ? null : s3ViewModel.Prefix.Trim();
+        s3ViewModel.Prefix = trimmedPrefix;
+        var s3PrefixKey = $"{nameof(UploadPageViewModel.S3Import)}.{nameof(S3ImportViewModel.Prefix)}";
+        if (ModelState.ContainsKey(s3PrefixKey))
+        {
+            ModelState.Remove(s3PrefixKey);
+        }
+
         var pageViewModel = new UploadPageViewModel
         {
             S3Import = s3ViewModel,
-            Files = new List<IFormFile>()
+            Files = new List<IFormFile>(),
+            StoredS3Settings = savedSettings.S3.Clone(),
+            ActiveTab = "s3"
         };
 
-        if (!TryValidateModel(s3ViewModel, nameof(UploadPageViewModel.S3Import)))
+        if (!HasS3Configuration(savedSettings.S3))
+        {
+            ModelState.AddModelError(string.Empty, "Configure S3 credentials on the Connection page before importing.");
+        }
+
+        if (!TryValidateModel(s3ViewModel, nameof(UploadPageViewModel.S3Import)) || !ModelState.IsValid)
         {
             return View("Upload", pageViewModel);
         }
 
-        var options = s3ViewModel.ToOptions();
+        var options = s3ViewModel.ToOptions(savedSettings.S3);
         var downloadResult = await _s3DocumentLoader.LoadAsync(options, cancellationToken).ConfigureAwait(false);
 
         UploadResult ingestionResult;
@@ -101,6 +146,7 @@ public class PrescriptionsController : Controller
             ingestionResult = new UploadResult();
         }
 
+        var ingestionFailuresBeforeMerge = ingestionResult.Failures.Count;
         if (downloadResult.Failures.Count > 0)
         {
             ingestionResult.Failures.InsertRange(0, downloadResult.Failures);
@@ -112,6 +158,18 @@ public class PrescriptionsController : Controller
         }
 
         pageViewModel.Result = ingestionResult;
+        if (!string.Equals(savedSettings.S3.DefaultPrefix, s3ViewModel.Prefix, StringComparison.Ordinal))
+        {
+            savedSettings.S3.DefaultPrefix = s3ViewModel.Prefix;
+            await _settingsStore.SaveAsync(savedSettings, cancellationToken).ConfigureAwait(false);
+        }
+        pageViewModel.StoredS3Settings = savedSettings.S3.Clone();
+        pageViewModel.S3Summary = new S3ImportSummary
+        {
+            Discovered = downloadResult.Files.Count,
+            Imported = ingestionResult.StoredRecords.Count,
+            Failed = ingestionResult.Failures.Count
+        };
 
         return View("Upload", pageViewModel);
     }
@@ -144,10 +202,12 @@ public class PrescriptionsController : Controller
     public async Task<IActionResult> Connection(CancellationToken cancellationToken)
     {
         var settings = await _settingsStore.GetAsync(cancellationToken);
+        settings.S3 ??= new S3Settings();
         var viewModel = new ConnectionTestViewModel
         {
             Settings = settings
         };
+        MaskSecrets(viewModel.Settings);
 
         return View(viewModel);
     }
@@ -157,12 +217,29 @@ public class PrescriptionsController : Controller
     public async Task<IActionResult> SaveConnection(ConnectionTestViewModel viewModel, CancellationToken cancellationToken)
     {
         viewModel.Settings ??= new CouchbaseSettings();
+        viewModel.Settings.S3 ??= new S3Settings();
+
+        var existingSettings = await _settingsStore.GetAsync(cancellationToken);
+        existingSettings.S3 ??= new S3Settings();
+
+        if (viewModel.Settings.Password == ConnectionTestViewModel.SecretPlaceholder)
+        {
+            viewModel.Settings.Password = existingSettings.Password;
+        }
+
+        if (viewModel.Settings.S3.SecretAccessKey == ConnectionTestViewModel.SecretPlaceholder)
+        {
+            viewModel.Settings.S3.SecretAccessKey = existingSettings.S3.SecretAccessKey;
+        }
+
+        if (string.IsNullOrWhiteSpace(viewModel.Settings.S3.SecretAccessKey))
+        {
+            viewModel.Settings.S3.SecretAccessKey ??= string.Empty;
+        }
 
         if (!TryValidateModel(viewModel.Settings, nameof(ConnectionTestViewModel.Settings)))
         {
-            viewModel.SaveSucceeded = false;
-            viewModel.SaveAlertStyle = "danger";
-            viewModel.SaveMessage = "Please fix the highlighted errors.";
+            MaskSecrets(viewModel.Settings);
             return View("Connection", viewModel);
         }
 
@@ -172,6 +249,7 @@ public class PrescriptionsController : Controller
         ModelState.Clear();
         viewModel.Settings = await _settingsStore.GetAsync(cancellationToken);
         viewModel.StructureStatus = structureStatus;
+        MaskSecrets(viewModel.Settings);
 
         if (structureStatus.HasErrors)
         {
@@ -207,6 +285,7 @@ public class PrescriptionsController : Controller
             Settings = settings,
             Result = result
         };
+        MaskSecrets(viewModel.Settings);
 
         return View("Connection", viewModel);
     }
@@ -223,6 +302,7 @@ public class PrescriptionsController : Controller
             Settings = settings,
             StructureStatus = status
         };
+        MaskSecrets(viewModel.Settings);
 
         if (status.HasErrors)
         {
@@ -265,5 +345,24 @@ public class PrescriptionsController : Controller
         }
 
         return string.Join(", ", missing);
+    }
+
+    private static bool HasS3Configuration(S3Settings settings) =>
+        !string.IsNullOrWhiteSpace(settings.AccessKeyId) &&
+        !string.IsNullOrWhiteSpace(settings.SecretAccessKey) &&
+        !string.IsNullOrWhiteSpace(settings.Region) &&
+        !string.IsNullOrWhiteSpace(settings.BucketName);
+
+    private static void MaskSecrets(CouchbaseSettings settings)
+    {
+        if (!string.IsNullOrEmpty(settings.Password))
+        {
+            settings.Password = ConnectionTestViewModel.SecretPlaceholder;
+        }
+
+        if (settings.S3 is not null && !string.IsNullOrEmpty(settings.S3.SecretAccessKey))
+        {
+            settings.S3.SecretAccessKey = ConnectionTestViewModel.SecretPlaceholder;
+        }
     }
 }

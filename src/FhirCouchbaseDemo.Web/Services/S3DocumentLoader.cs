@@ -55,14 +55,7 @@ public class S3DocumentLoader : IS3DocumentLoader
         {
             using var client = new AmazonS3Client(credentials, config);
 
-            if (options.HasExplicitKeys)
-            {
-                await LoadExplicitKeysAsync(client, options, result, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                await LoadByPrefixAsync(client, options, result, cancellationToken).ConfigureAwait(false);
-            }
+            await LoadByPrefixAsync(client, options, result, cancellationToken).ConfigureAwait(false);
         }
         catch (AmazonS3Exception ex)
         {
@@ -123,44 +116,6 @@ public class S3DocumentLoader : IS3DocumentLoader
         }
 
         return config;
-    }
-
-    private async Task LoadExplicitKeysAsync(
-        IAmazonS3 client,
-        S3ImportOptions options,
-        S3DocumentLoaderResult result,
-        CancellationToken cancellationToken)
-    {
-        foreach (var key in options.ObjectKeys)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                var file = await DownloadObjectAsync(client, options.BucketName, key, cancellationToken).ConfigureAwait(false);
-                if (file is not null)
-                {
-                    result.Files.Add(file);
-                }
-            }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                _logger.LogWarning(ex, "S3 object {Key} not found in bucket {Bucket}.", key, options.BucketName);
-                result.Failures.Add(new UploadFailure
-                {
-                    FileName = key,
-                    ErrorMessage = "Object not found."
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to download S3 object {Key} from bucket {Bucket}.", key, options.BucketName);
-                result.Failures.Add(new UploadFailure
-                {
-                    FileName = key,
-                    ErrorMessage = ex.Message
-                });
-            }
-        }
     }
 
     private async Task LoadByPrefixAsync(

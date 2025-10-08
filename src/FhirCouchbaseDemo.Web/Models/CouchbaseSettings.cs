@@ -29,6 +29,8 @@ public class CouchbaseSettings : IEquatable<CouchbaseSettings?>
     [Display(Name = "Collection name")]
     public string CollectionName { get; set; } = "prescriptions";
 
+    public S3Settings S3 { get; set; } = new();
+
     public CouchbaseSettings Clone() => new()
     {
         ConnectionString = ConnectionString,
@@ -36,7 +38,8 @@ public class CouchbaseSettings : IEquatable<CouchbaseSettings?>
         Password = Password,
         BucketName = BucketName,
         ScopeName = ScopeName,
-        CollectionName = CollectionName
+        CollectionName = CollectionName,
+        S3 = S3.Clone()
     };
 
     public bool Equals(CouchbaseSettings? other)
@@ -51,10 +54,11 @@ public class CouchbaseSettings : IEquatable<CouchbaseSettings?>
                string.Equals(Password, other.Password, StringComparison.Ordinal) &&
                string.Equals(BucketName, other.BucketName, StringComparison.Ordinal) &&
                string.Equals(ScopeName, other.ScopeName, StringComparison.Ordinal) &&
-               string.Equals(CollectionName, other.CollectionName, StringComparison.Ordinal);
+               string.Equals(CollectionName, other.CollectionName, StringComparison.Ordinal) &&
+               S3.Equals(other.S3);
     }
 
     public override bool Equals(object? obj) => obj is CouchbaseSettings other && Equals(other);
 
-    public override int GetHashCode() => HashCode.Combine(ConnectionString, Username, Password, BucketName, ScopeName, CollectionName);
+    public override int GetHashCode() => HashCode.Combine(ConnectionString, Username, Password, BucketName, ScopeName, CollectionName, S3);
 }

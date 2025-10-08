@@ -1,49 +1,105 @@
 @model FhirCouchbaseDemo.Web.ViewModels.ConnectionTestViewModel
 @{
-    ViewData["Title"] = "Couchbase Connection";
+    ViewData["Title"] = "Settings";
 }
 
-<h1 class="display-6 mb-4">Couchbase connectivity & configuration</h1>
-<p class="text-muted">Update the Couchbase credentials stored by the demo and verify connectivity from the application.</p>
+<h1 class="display-6 mb-3">Environment settings</h1>
+<p class="text-muted">Manage the Couchbase connection and S3/MinIO access used by the demo experience.</p>
 
-<form asp-action="SaveConnection" method="post" class="border rounded p-4 mb-4 bg-light-subtle">
+<form asp-action="SaveConnection" method="post" class="mb-4">
     @Html.AntiForgeryToken()
     <div asp-validation-summary="ModelOnly" class="text-danger"></div>
-    <div class="row g-3">
-        <div class="col-md-6">
-            <label asp-for="Settings.ConnectionString" class="form-label"></label>
-            <input asp-for="Settings.ConnectionString" class="form-control" />
-            <span asp-validation-for="Settings.ConnectionString" class="text-danger"></span>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-body-secondary">
+            <strong>Couchbase connection</strong>
         </div>
-        <div class="col-md-3">
-            <label asp-for="Settings.Username" class="form-label"></label>
-            <input asp-for="Settings.Username" class="form-control" />
-            <span asp-validation-for="Settings.Username" class="text-danger"></span>
+        <div class="card-body">
+            <p class="text-muted small mb-3">These values configure how the demo connects to Couchbase and which collection stores the prescription documents.</p>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label asp-for="Settings.ConnectionString" class="form-label"></label>
+                    <input asp-for="Settings.ConnectionString" class="form-control" />
+                    <span asp-validation-for="Settings.ConnectionString" class="text-danger"></span>
+                </div>
+                <div class="col-md-3">
+                    <label asp-for="Settings.Username" class="form-label"></label>
+                    <input asp-for="Settings.Username" class="form-control" />
+                    <span asp-validation-for="Settings.Username" class="text-danger"></span>
+                </div>
+                <div class="col-md-3">
+                    <label asp-for="Settings.Password" class="form-label"></label>
+                    <input asp-for="Settings.Password" class="form-control" type="password" autocomplete="current-password" data-secret-masked="@(Model.Settings.Password == ConnectionTestViewModel.SecretPlaceholder ? "true" : "false")" />
+                    <span asp-validation-for="Settings.Password" class="text-danger"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Settings.BucketName" class="form-label"></label>
+                    <input asp-for="Settings.BucketName" class="form-control" />
+                    <span asp-validation-for="Settings.BucketName" class="text-danger"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Settings.ScopeName" class="form-label"></label>
+                    <input asp-for="Settings.ScopeName" class="form-control" />
+                    <span asp-validation-for="Settings.ScopeName" class="text-danger"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Settings.CollectionName" class="form-label"></label>
+                    <input asp-for="Settings.CollectionName" class="form-control" />
+                    <span asp-validation-for="Settings.CollectionName" class="text-danger"></span>
+                </div>
+            </div>
         </div>
-        <div class="col-md-3">
-            <label asp-for="Settings.Password" class="form-label"></label>
-            <input asp-for="Settings.Password" class="form-control" type="password" autocomplete="current-password" />
-            <span asp-validation-for="Settings.Password" class="text-danger"></span>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-body-secondary">
+            <strong>S3 / MinIO configuration</strong>
         </div>
-        <div class="col-md-4">
-            <label asp-for="Settings.BucketName" class="form-label"></label>
-            <input asp-for="Settings.BucketName" class="form-control" />
-            <span asp-validation-for="Settings.BucketName" class="text-danger"></span>
+        <div class="card-body">
+            <p class="text-muted small mb-3">Used when importing FHIR bundles directly from an object store bucket.</p>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label asp-for="Settings.S3.AccessKeyId" class="form-label"></label>
+                    <input asp-for="Settings.S3.AccessKeyId" class="form-control" autocomplete="off" />
+                    <span asp-validation-for="Settings.S3.AccessKeyId" class="text-danger"></span>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="Settings.S3.SecretAccessKey" class="form-label"></label>
+                    <input asp-for="Settings.S3.SecretAccessKey" class="form-control" type="password" autocomplete="off" data-secret-masked="@(Model.Settings.S3.SecretAccessKey == ConnectionTestViewModel.SecretPlaceholder ? "true" : "false")" />
+                    <span asp-validation-for="Settings.S3.SecretAccessKey" class="text-danger"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Settings.S3.Region" class="form-label"></label>
+                    <input asp-for="Settings.S3.Region" class="form-control" />
+                    <span asp-validation-for="Settings.S3.Region" class="text-danger"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Settings.S3.BucketName" class="form-label"></label>
+                    <input asp-for="Settings.S3.BucketName" class="form-control" />
+                    <span asp-validation-for="Settings.S3.BucketName" class="text-danger"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Settings.S3.EndpointUrl" class="form-label"></label>
+                    <input asp-for="Settings.S3.EndpointUrl" class="form-control" placeholder="https://minio.local:9000" />
+                    <span asp-validation-for="Settings.S3.EndpointUrl" class="text-danger"></span>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="Settings.S3.DefaultPrefix" class="form-label"></label>
+                    <input asp-for="Settings.S3.DefaultPrefix" class="form-control" placeholder="samples/erezept/" />
+                    <span asp-validation-for="Settings.S3.DefaultPrefix" class="text-danger"></span>
+                </div>
+                <div class="col-md-6 d-flex align-items-center">
+                    <div class="form-check mt-4">
+                        <input asp-for="Settings.S3.ForcePathStyle" class="form-check-input" />
+                        <label asp-for="Settings.S3.ForcePathStyle" class="form-check-label"></label>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="col-md-4">
-            <label asp-for="Settings.ScopeName" class="form-label"></label>
-            <input asp-for="Settings.ScopeName" class="form-control" />
-            <span asp-validation-for="Settings.ScopeName" class="text-danger"></span>
-        </div>
-        <div class="col-md-4">
-            <label asp-for="Settings.CollectionName" class="form-label"></label>
-            <input asp-for="Settings.CollectionName" class="form-control" />
-            <span asp-validation-for="Settings.CollectionName" class="text-danger"></span>
-        </div>
-        <div class="col-12 d-flex justify-content-between align-items-center mt-2">
-            <small class="text-muted">Settings are stored in <code>App_Data/couchbase-settings.json</code> inside the project.</small>
-            <button type="submit" class="btn btn-primary">Save settings</button>
-        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center">
+        <small class="text-muted">Settings are stored in <code>App_Data/settings.json</code> inside the project.</small>
+        <button type="submit" class="btn btn-primary">Save settings</button>
     </div>
 </form>
 
@@ -134,4 +190,12 @@
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    <script>
+        (() => {
+            const placeholder = '@ConnectionTestViewModel.SecretPlaceholder';
+            document.querySelectorAll('[data-secret-masked="true"]').forEach((input) => {
+                input.value = placeholder;
+            });
+        })();
+    </script>
 }

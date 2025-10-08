@@ -1,8 +1,0 @@
-{
-  "connectionString": "couchbase://localhost",
-  "username": "root",
-  "password": "sobaka",
-  "bucketName": "arz",
-  "scopeName": "fhir",
-  "collectionName": "bundles"
-}

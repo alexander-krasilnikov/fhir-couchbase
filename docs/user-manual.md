@@ -53,7 +53,7 @@ The JSON payloads and raw XML are persisted in the same Couchbase document. The 
 
 ## 4. Couchbase connection & configuration
 
-Use the **Connection** page to inspect and update the credentials persisted by the demo. Edit the connection string, credentials, or bucket/scope/collection values and click **Save settings** (they are written to `App_Data/couchbase-settings.json`).
+Use the **Connection** page to inspect and update the credentials persisted by the demo. Edit the connection string, credentials, or bucket/scope/collection values and click **Save settings** (they are written to `App_Data/settings.json`).
 
 Press **Run connectivity test** afterwards to execute a `PING` from the SDK with the saved configuration:
 
@@ -66,4 +66,3 @@ Press **Run connectivity test** afterwards to execute a `PING` from the SDK with
 2. Navigate to **Upload**, select two XML bundles from the ABDA repo, and upload them.
 3. Switch to **Search**, filter by the PZN contained in the sample bundle (`04351736`) and limit the issue date to September 2025. Highlight that the query leverages metadata extracted during ingestion.
 4. Expand the JSON payloads to illustrate how Couchbase keeps both the raw data and enriched metadata in a single flexible document model.
-

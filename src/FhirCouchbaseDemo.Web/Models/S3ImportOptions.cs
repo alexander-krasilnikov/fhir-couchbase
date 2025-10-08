@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace FhirCouchbaseDemo.Web.Models;
 
@@ -9,7 +8,6 @@ public class S3ImportOptions
     public string SecretAccessKey { get; set; } = string.Empty;
     public string Region { get; set; } = "us-east-1";
     public string BucketName { get; set; } = string.Empty;
-    public List<string> ObjectKeys { get; set; } = new();
     public string? Prefix { get; set; }
     public string? EndpointUrl { get; set; }
     public bool ForcePathStyle { get; set; } = true;
@@ -17,11 +15,9 @@ public class S3ImportOptions
 
     public void Normalize()
     {
-        ObjectKeys = ObjectKeys ?? new List<string>();
-        ObjectKeys.RemoveAll(key => string.IsNullOrWhiteSpace(key));
-        for (var i = 0; i < ObjectKeys.Count; i++)
+        if (!string.IsNullOrWhiteSpace(Prefix))
         {
-            ObjectKeys[i] = ObjectKeys[i].Trim();
+            Prefix = Prefix.Trim();
         }
 
         if (MaxKeys <= 0)
@@ -33,8 +29,6 @@ public class S3ImportOptions
             MaxKeys = 500;
         }
     }
-
-    public bool HasExplicitKeys => ObjectKeys.Count > 0;
 
     public Uri? TryGetEndpointUri()
     {
