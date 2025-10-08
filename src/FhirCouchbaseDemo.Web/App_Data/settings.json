@@ -2,8 +2,8 @@
   "connectionString": "couchbase://localhost",
   "username": "root",
   "password": "sobaka",
-  "bucketName": "arz",
-  "scopeName": "fhir",
+  "bucketName": "fhir",
+  "scopeName": "test",
   "collectionName": "bundles",
   "s3": {
     "accessKeyId": "minioadmin",

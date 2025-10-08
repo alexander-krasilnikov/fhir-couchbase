@@ -1,0 +1,1 @@
+CREATE INDEX `adv_DISTINCT_pznCodes_str_to_millis_jsonPayload_timestamp_primar4100708854` ON `fhir`.`test`.`bundles`((distinct (array `v` for `v` in `pznCodes` end)),str_to_millis((`jsonPayload`.`timestamp`)),`primaryPzn`,(`jsonPayload`.`timestamp`),`id`,`fileName`,`pznCodes`)
